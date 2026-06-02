@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter};
 use crate::audio_engine::AudioEngine;
 use crate::decoder::{Decoder, DecoderError};
 use crate::nwa_decoder::NwaDecoder;
+use crate::playlist::LoopMode;
 use crate::resampler::LinearResampler;
 use crate::symphonia_decoder::SymphoniaDecoder;
 
@@ -48,6 +49,7 @@ pub struct Player {
     stop_flag: Option<Arc<AtomicBool>>,
     app_handle: Option<AppHandle>,
     position_ms: u64,
+    loop_mode: LoopMode,
 }
 
 impl Player {
@@ -60,7 +62,12 @@ impl Player {
             stop_flag: None,
             app_handle: None,
             position_ms: 0,
+            loop_mode: LoopMode::None,
         }
+    }
+
+    pub fn set_loop_mode(&mut self, mode: LoopMode) {
+        self.loop_mode = mode;
     }
 
     pub fn set_app_handle(&mut self, handle: AppHandle) {
@@ -222,19 +229,26 @@ impl Player {
 
     pub fn seek(&mut self, position_ms: u64) -> Result<(), String> {
         let was_playing = self.state == PlayerState::Playing;
-        log::info!("Seeking to {}ms (was_playing={})", position_ms, was_playing);
+
+        // 防止 seek 到文件末尾导致失败：限制在有效范围内
+        let max_ms = self.file_meta.as_ref().map(|m| m.duration_ms).unwrap_or(0);
+        let target = position_ms.min(max_ms.saturating_sub(1));
+
+        log::info!("Seeking to {}ms (was_playing={}, max={})", target, was_playing, max_ms);
 
         self.kill_decoder_thread();
 
         if let Some(ref decoder) = self.decoder {
-            decoder
-                .lock()
-                .unwrap()
-                .seek(position_ms)
-                .map_err(|e| format!("Seek failed: {}", e))?;
+            // 尝试 seek，失败则逐步回退到安全位置
+            for &retry_ms in &[target, target.saturating_sub(500), 0] {
+                if decoder.lock().unwrap().seek(retry_ms).is_ok() {
+                    break;
+                }
+                log::warn!("Seek to {}ms failed, retrying at {}ms", target, retry_ms);
+            }
         }
 
-        self.position_ms = position_ms;
+        self.position_ms = target;
         self.emit_progress();
 
         self.spawn_decoder_thread()?;
@@ -283,6 +297,7 @@ impl Player {
 
         let app_handle = self.app_handle.clone();
         let duration_ms = meta.duration_ms;
+        let loop_mode = self.loop_mode.clone();
 
         std::thread::spawn(move || {
             let ch = file_ch as u64;
@@ -319,10 +334,18 @@ impl Player {
                 };
 
                 if n == 0 {
-                    // 冲刷重采样器中残留的样本
                     let flushed = resampler.flush(&mut resample_buf);
                     if flushed > 0 {
                         push_to_ring(&mut prod, &resample_buf[..flushed], &stop_flag_for_thread);
+                    }
+                    // 单曲循环：seek 回 0 继续
+                    if loop_mode == LoopMode::Single && !stop_flag_for_thread.load(Ordering::SeqCst) {
+                        if let Ok(mut dec) = decoder.lock() {
+                            dec.seek(0).ok();
+                        }
+                        resampler.reset();
+                        first_decode = true;
+                        continue;
                     }
                     break;
                 }

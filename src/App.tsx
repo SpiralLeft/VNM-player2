@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { usePlayerStore } from "./stores/playerStore";
 import { FileOpener } from "./components/FileOpener";
 import { PlayerControls } from "./components/Player";
+import { Playlist } from "./components/Playlist";
 import { ProgressBar } from "./components/ProgressBar";
 import { VolumeControl } from "./components/VolumeControl";
 
@@ -54,6 +55,8 @@ function App() {
       />
 
       <VolumeControl volume={volume} onVolumeChange={setVolume} />
+
+      <Playlist />
     </div>
   );
 }

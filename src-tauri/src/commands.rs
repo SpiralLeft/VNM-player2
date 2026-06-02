@@ -3,10 +3,14 @@ use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
 use crate::player::{FileMetadata, Player, PlayerState};
+use crate::playlist::{self, LoopMode, Playlist, PlaylistState};
 
 pub struct AppState {
     pub player: Mutex<Player>,
+    pub playlist: Mutex<Playlist>,
 }
+
+// ── Player commands ──────────────────────────────────────────
 
 #[derive(serde::Serialize)]
 pub struct PlayerStateResponse {
@@ -32,11 +36,21 @@ pub fn open_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<FileMetadataResponse, String> {
+    // 从播放列表获取循环模式
+    let loop_mode = {
+        let pl = state.inner().playlist.lock().unwrap();
+        pl.loop_mode.clone()
+    };
     let mut player = state.inner().player.lock().unwrap();
     player.set_app_handle(app);
+    player.set_loop_mode(loop_mode);
     let meta: FileMetadata = player.open_file(&path)?;
+    {
+        let mut pl = state.inner().playlist.lock().unwrap();
+        pl.update_duration(&meta.path, meta.duration_ms);
+    }
     Ok(FileMetadataResponse {
-        path: meta.path,
+        path: meta.path.clone(),
         duration_ms: meta.duration_ms,
         sample_rate: meta.file_sample_rate,
         channels: meta.file_channels,
@@ -92,4 +106,169 @@ pub fn get_state(state: State<'_, AppState>) -> Result<PlayerStateResponse, Stri
         current_file: meta.map(|m| m.path),
         volume: 1.0,
     })
+}
+
+// ── Playlist commands ────────────────────────────────────────
+
+#[tauri::command]
+pub fn add_to_playlist(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PlaylistState, String> {
+    let mut pl = state.inner().playlist.lock().unwrap();
+    pl.add(path, 0);
+    Ok(pl.state())
+}
+
+#[tauri::command]
+pub fn remove_from_playlist(
+    state: State<'_, AppState>,
+    index: usize,
+) -> Result<PlaylistState, String> {
+    let mut pl = state.inner().playlist.lock().unwrap();
+    pl.remove(index);
+    Ok(pl.state())
+}
+
+#[tauri::command]
+pub fn play_from_playlist(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    index: usize,
+) -> Result<FileMetadataResponse, String> {
+    let (path, loop_mode) = {
+        let mut pl = state.inner().playlist.lock().unwrap();
+        pl.set_current(index);
+        let entry = pl.current_entry().cloned();
+        let lm = pl.loop_mode.clone();
+        (entry.map(|e| e.path), lm)
+    };
+
+    let path = path.ok_or_else(|| "No entry at that index".to_string())?;
+
+    let mut player = state.inner().player.lock().unwrap();
+    player.set_app_handle(app);
+    player.set_loop_mode(loop_mode);
+    let meta: FileMetadata = player.open_file(&path)?;
+    // Update playlist entry duration
+    {
+        let mut pl = state.inner().playlist.lock().unwrap();
+        pl.update_duration(&meta.path, meta.duration_ms);
+    }
+    Ok(FileMetadataResponse {
+        path: meta.path,
+        duration_ms: meta.duration_ms,
+        sample_rate: meta.file_sample_rate,
+        channels: meta.file_channels,
+        device_sample_rate: meta.device_sample_rate,
+    })
+}
+
+#[tauri::command]
+pub fn next_track(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<FileMetadataResponse>, String> {
+    let (next_path, loop_mode) = {
+        let mut pl = state.inner().playlist.lock().unwrap();
+        let idx = pl.next();
+        let entry = idx.and_then(|i| pl.entries.get(i)).cloned();
+        let lm = pl.loop_mode.clone();
+        (entry.map(|e| e.path), lm)
+    };
+
+    match next_path {
+        Some(path) => {
+            let mut player = state.inner().player.lock().unwrap();
+            player.set_app_handle(app);
+            player.set_loop_mode(loop_mode);
+            let meta: FileMetadata = player.open_file(&path)?;
+            Ok(Some(FileMetadataResponse {
+                path: meta.path,
+                duration_ms: meta.duration_ms,
+                sample_rate: meta.file_sample_rate,
+                channels: meta.file_channels,
+                device_sample_rate: meta.device_sample_rate,
+            }))
+        }
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub fn previous_track(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<FileMetadataResponse>, String> {
+    let (prev_path, loop_mode) = {
+        let mut pl = state.inner().playlist.lock().unwrap();
+        let idx = pl.previous();
+        let entry = idx.and_then(|i| pl.entries.get(i)).cloned();
+        let lm = pl.loop_mode.clone();
+        (entry.map(|e| e.path), lm)
+    };
+
+    match prev_path {
+        Some(path) => {
+            let mut player = state.inner().player.lock().unwrap();
+            player.set_app_handle(app);
+            player.set_loop_mode(loop_mode);
+            let meta: FileMetadata = player.open_file(&path)?;
+            Ok(Some(FileMetadataResponse {
+                path: meta.path,
+                duration_ms: meta.duration_ms,
+                sample_rate: meta.file_sample_rate,
+                channels: meta.file_channels,
+                device_sample_rate: meta.device_sample_rate,
+            }))
+        }
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub fn get_playlist(state: State<'_, AppState>) -> Result<PlaylistState, String> {
+    let pl = state.inner().playlist.lock().unwrap();
+    Ok(pl.state())
+}
+
+#[tauri::command]
+pub fn set_loop_mode(
+    state: State<'_, AppState>,
+    mode: String,
+) -> Result<PlaylistState, String> {
+    let lm = match mode.as_str() {
+        "none" => LoopMode::None,
+        "single" => LoopMode::Single,
+        "list" => LoopMode::List,
+        _ => return Err(format!("Invalid loop mode: {}", mode)),
+    };
+    // 同步到 Player（单曲循环由后端解码线程处理）
+    {
+        let mut player = state.inner().player.lock().unwrap();
+        player.set_loop_mode(lm.clone());
+    }
+    let mut pl = state.inner().playlist.lock().unwrap();
+    pl.set_loop_mode(lm);
+    Ok(pl.state())
+}
+
+#[tauri::command]
+pub fn scan_folder(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PlaylistState, String> {
+    let files = playlist::scan_folder(&path)?;
+    let mut pl = state.inner().playlist.lock().unwrap();
+    for (fpath, dur) in files {
+        pl.add(fpath, dur);
+    }
+    Ok(pl.state())
+}
+
+#[tauri::command]
+pub fn clear_playlist(state: State<'_, AppState>) -> Result<PlaylistState, String> {
+    let mut pl = state.inner().playlist.lock().unwrap();
+    pl.clear();
+    Ok(pl.state())
 }

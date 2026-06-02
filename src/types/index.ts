@@ -5,6 +5,18 @@ export interface FileInfo {
   duration_ms: number;
   sample_rate: number;
   channels: number;
+  device_sample_rate: number;
+}
+
+export interface PlaylistEntry {
+  path: string;
+  duration_ms: number;
+}
+
+export interface PlaylistState {
+  entries: PlaylistEntry[];
+  currentIndex: number | null;
+  loopMode: string;
 }
 
 export interface PlayerState {
