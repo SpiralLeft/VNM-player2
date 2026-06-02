@@ -25,9 +25,15 @@ pub struct SymphoniaDecoder {
 impl SymphoniaDecoder {
     pub fn open(path: &Path) -> Result<Self, DecoderError> {
         let file = std::fs::File::open(path)?;
+        // 增大缓冲区以提高兼容性（默认 4KB 可能不够）
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-        let hint = Hint::new();
+        // 根据扩展名给 probe 提示，提高检测准确率
+        let mut hint = Hint::new();
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            hint.with_extension(ext);
+        }
+
         let format_opts = FormatOptions::default();
         let metadata_opts = MetadataOptions::default();
 

@@ -38,19 +38,27 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
       filters: [
         {
           name: "Audio Files",
-          extensions: ["mp3", "wav", "ogg", "flac"],
+          extensions: ["mp3", "wav", "ogg", "flac", "nwa"],
         },
       ],
     });
     if (!path) return;
 
-    const info: FileInfo = await invoke("open_file", { path });
-    set({
-      current_file: info.path,
-      duration_ms: info.duration_ms,
-      state: "paused",
-      position_ms: 0,
-    });
+    // 打开新文件前先停止当前播放
+    try { await invoke("stop"); } catch { /* ignore */ }
+
+    try {
+      const info: FileInfo = await invoke("open_file", { path });
+      set({
+        current_file: info.path,
+        duration_ms: info.duration_ms,
+        state: "paused",
+        position_ms: 0,
+      });
+    } catch (e) {
+      alert(`Failed to open file:\n${e}`);
+      console.error("open_file error:", e);
+    }
   },
 
   play: async () => {

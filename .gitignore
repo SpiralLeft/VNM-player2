@@ -24,3 +24,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+
+.ref
+.claude

@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::audio_engine::AudioEngine;
 use crate::decoder::{Decoder, DecoderError};
+use crate::nwa_decoder::NwaDecoder;
 use crate::resampler::LinearResampler;
 use crate::symphonia_decoder::SymphoniaDecoder;
 
@@ -41,7 +42,7 @@ pub struct ProgressEvent {
 
 pub struct Player {
     state: PlayerState,
-    decoder: Option<Arc<Mutex<SymphoniaDecoder>>>,
+    decoder: Option<Arc<Mutex<Box<dyn Decoder>>>>,
     file_meta: Option<FileMetadata>,
     audio_engine: Option<AudioEngine>,
     stop_flag: Option<Arc<AtomicBool>>,
@@ -85,8 +86,18 @@ impl Player {
     pub fn open_file(&mut self, path: &str) -> Result<FileMetadata, String> {
         self.kill_decoder_thread();
 
-        let decoder = SymphoniaDecoder::open(Path::new(path))
-            .map_err(|e| format!("Failed to open file: {}", e))?;
+        let path_lower = path.to_lowercase();
+        let decoder: Box<dyn Decoder> = if path_lower.ends_with(".nwa") {
+            Box::new(
+                NwaDecoder::open(Path::new(path))
+                    .map_err(|e| format!("Failed to open NWA: {}", e))?,
+            )
+        } else {
+            Box::new(
+                SymphoniaDecoder::open(Path::new(path))
+                    .map_err(|e| format!("Failed to open file: {}", e))?,
+            )
+        };
 
         let file_rate = decoder.sample_rate();
         let file_ch = decoder.channels();
@@ -96,9 +107,10 @@ impl Player {
             .map_err(|e| format!("Failed to init audio engine: {}", e))?;
         let device_rate = engine.device_rate;
 
-        log::info!(
-            "File: {}Hz {}ch → Device: {}Hz (resampling {:.3}x)",
-            file_rate, file_ch, device_rate,
+        let device_ch = engine.device_channels;
+        eprintln!(
+            "[Player] File: {}Hz {}ch → Device: {}Hz {}ch (ratio {:.3}x)",
+            file_rate, file_ch, device_rate, device_ch,
             device_rate as f64 / file_rate as f64
         );
 
@@ -277,8 +289,8 @@ impl Player {
 
             // 创建重采样器：文件采样率 → 设备采样率
             let mut resampler = LinearResampler::new(file_rate, device_rate, file_ch);
-            // 输出缓冲区（重采样后，按设备速率）
-            let mut resample_buf = vec![0.0f32; 8192];
+            // 输出缓冲区需要容纳上采样扩展后的数据（最多 2x）
+            let mut resample_buf = vec![0.0f32; 32768];
 
             let mut last_progress = Instant::now();
             let mut first_decode = true;

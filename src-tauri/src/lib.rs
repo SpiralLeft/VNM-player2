@@ -1,6 +1,7 @@
 mod audio_engine;
 mod commands;
 mod decoder;
+mod nwa_decoder;
 mod player;
 mod resampler;
 mod symphonia_decoder;
