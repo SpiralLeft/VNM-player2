@@ -10,6 +10,7 @@ mod symphonia_decoder;
 use commands::AppState;
 use player::Player;
 use playlist::Playlist;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,6 +22,7 @@ pub fn run() {
         .manage(AppState {
             player: Mutex::new(Player::new()),
             playlist: Mutex::new(Playlist::new()),
+            cover_cache: Mutex::new(HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::open_file,
@@ -39,6 +41,7 @@ pub fn run() {
             commands::set_loop_mode,
             commands::scan_folder,
             commands::clear_playlist,
+            commands::get_cover_art,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

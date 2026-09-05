@@ -108,17 +108,19 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   // ── Playlist actions ──────────────────────────────
 
   playFromPlaylist: async (index: number) => {
+    const wasPlaying = get().state === "playing";
     const info: FileInfo = await invoke("play_from_playlist", { index });
     const pl: PlaylistState = await invoke("get_playlist");
     set({
       current_file: info.path,
       duration_ms: info.duration_ms,
-      state: "paused",
+      state: wasPlaying ? "playing" : "paused",
       position_ms: 0,
       playlist: pl.entries,
       current_playlist_index: pl.currentIndex,
       loop_mode: pl.loopMode,
     });
+    if (wasPlaying) await invoke("play");
   },
 
   removeFromPlaylist: async (index: number) => {
@@ -127,34 +129,38 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   nextTrack: async () => {
+    const wasPlaying = get().state === "playing";
     const result = await invoke("next_track") as FileInfo | null;
     const pl: PlaylistState = await invoke("get_playlist");
     if (result) {
       set({
         current_file: result.path,
         duration_ms: result.duration_ms,
-        state: "paused",
+        state: wasPlaying ? "playing" : "paused",
         position_ms: 0,
         playlist: pl.entries,
         current_playlist_index: pl.currentIndex,
       });
+      if (wasPlaying) await invoke("play");
     } else {
       set({ playlist: pl.entries, current_playlist_index: pl.currentIndex });
     }
   },
 
   previousTrack: async () => {
+    const wasPlaying = get().state === "playing";
     const result = await invoke("previous_track") as FileInfo | null;
     const pl: PlaylistState = await invoke("get_playlist");
     if (result) {
       set({
         current_file: result.path,
         duration_ms: result.duration_ms,
-        state: "paused",
+        state: wasPlaying ? "playing" : "paused",
         position_ms: 0,
         playlist: pl.entries,
         current_playlist_index: pl.currentIndex,
       });
+      if (wasPlaying) await invoke("play");
     } else {
       set({ playlist: pl.entries, current_playlist_index: pl.currentIndex });
     }

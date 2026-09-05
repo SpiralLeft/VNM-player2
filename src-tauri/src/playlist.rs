@@ -85,23 +85,31 @@ impl Playlist {
     }
 
     pub fn next(&mut self) -> Option<usize> {
-        match self.current_index {
-            Some(i) if i + 1 < self.entries.len() => {
-                self.current_index = Some(i + 1);
-                self.current_index
-            }
-            _ => None,
+        if self.entries.is_empty() {
+            return None;
         }
+        let next_idx = match self.current_index {
+            Some(i) if i + 1 < self.entries.len() => i + 1,
+            // 列表循环：回到第一首
+            _ if self.loop_mode == LoopMode::List => 0,
+            _ => return None,
+        };
+        self.current_index = Some(next_idx);
+        self.current_index
     }
 
     pub fn previous(&mut self) -> Option<usize> {
-        match self.current_index {
-            Some(i) if i > 0 => {
-                self.current_index = Some(i - 1);
-                self.current_index
-            }
-            _ => None,
+        if self.entries.is_empty() {
+            return None;
         }
+        let prev_idx = match self.current_index {
+            Some(i) if i > 0 => i - 1,
+            // 列表循环：回到最后一首
+            _ if self.loop_mode == LoopMode::List => self.entries.len() - 1,
+            _ => return None,
+        };
+        self.current_index = Some(prev_idx);
+        self.current_index
     }
 
     pub fn state(&self) -> PlaylistState {

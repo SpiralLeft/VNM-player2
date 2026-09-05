@@ -21,13 +21,13 @@ export function Playlist() {
     setLoopMode,
     scanFolder,
     clearPlaylist,
+    openFile,
   } = usePlayerStore();
 
   const cycleLoopMode = () => {
     const modes = ["none", "single", "list"];
     const idx = modes.indexOf(loop_mode);
     const next = modes[(idx + 1) % modes.length];
-    console.log("[Playlist] cycleLoopMode:", loop_mode, "→", next);
     setLoopMode(next);
   };
 
@@ -35,69 +35,35 @@ export function Playlist() {
   const loopTitle = loop_mode === "none" ? "No Loop" : loop_mode === "single" ? "Single Loop" : "List Loop";
 
   return (
-    <div className="w-full max-w-md flex flex-col gap-2">
+    <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-400 shrink-0">
-          Playlist ({playlist.length})
-        </span>
+      <div className="flex items-center gap-1 mb-1 shrink-0">
+        <span className="text-xs text-gray-400 shrink-0">Playlist ({playlist.length})</span>
         <div className="flex gap-1 ml-auto">
-          <button
-            onClick={cycleLoopMode}
-            className="w-8 px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer transition-colors text-center"
-            title={loopTitle}
-          >
-            {loopLabel}
-          </button>
-          <button
-            onClick={scanFolder}
-            className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer"
-            title="Add folder"
-          >
-            +Folder
-          </button>
-          <button
-            onClick={clearPlaylist}
-            className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-red-700 cursor-pointer"
-            title="Clear playlist"
-          >
-            Clear
-          </button>
+          <button onClick={cycleLoopMode} className="w-8 px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer text-center" title={loopTitle}>{loopLabel}</button>
+          <button onClick={openFile} className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer" title="Open file">Open</button>
+          <button onClick={scanFolder} className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-gray-600 cursor-pointer" title="Add folder">+Folder</button>
+          <button onClick={clearPlaylist} className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-red-700 cursor-pointer" title="Clear">Clear</button>
         </div>
       </div>
 
-      {/* List */}
-      <div className="max-h-64 overflow-y-auto bg-gray-900 rounded border border-gray-700">
+      {/* List — fills remaining height */}
+      <div className="flex-1 min-h-0 overflow-y-auto bg-gray-900 rounded border border-gray-700">
         {playlist.length === 0 ? (
-          <div className="p-3 text-xs text-gray-500 text-center">
-            No tracks added. Open files or drag a folder.
-          </div>
+          <div className="p-3 text-xs text-gray-500 text-center">No tracks. Open files or add a folder.</div>
         ) : (
           playlist.map((entry, i) => (
             <div
               key={`${entry.path}-${i}`}
               onClick={() => playFromPlaylist(i)}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer border-b border-gray-800 last:border-0 transition-colors ${
-                current_playlist_index === i
-                  ? "bg-blue-900/50 text-blue-200"
-                  : "text-gray-300 hover:bg-gray-800"
+                current_playlist_index === i ? "bg-blue-900/50 text-blue-200" : "text-gray-300 hover:bg-gray-800"
               }`}
             >
-              <span className="text-gray-500 w-5 text-right shrink-0">
-                {current_playlist_index === i ? "▶" : i + 1}
-              </span>
+              <span className="text-gray-500 w-5 text-right shrink-0">{current_playlist_index === i ? "▶" : i + 1}</span>
               <span className="truncate flex-1">{fileName(entry.path)}</span>
               <span className="text-gray-500 shrink-0">{formatTime(entry.duration_ms)}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeFromPlaylist(i);
-                }}
-                className="text-gray-500 hover:text-red-400 cursor-pointer shrink-0"
-                title="Remove"
-              >
-                ×
-              </button>
+              <button onClick={(e) => { e.stopPropagation(); removeFromPlaylist(i); }} className="text-gray-500 hover:text-red-400 cursor-pointer shrink-0" title="Remove">×</button>
             </div>
           ))
         )}
